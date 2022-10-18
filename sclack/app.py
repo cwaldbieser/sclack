@@ -4,31 +4,32 @@ import concurrent.futures
 import functools
 import json
 import os
-import requests
 import sys
+import tempfile
 import time
 import traceback
-import tempfile
-import urwid
 from datetime import datetime
-from sclack.components import Attachment, Channel, ChannelHeader, ChatBox, Dm
-from sclack.components import Indicators, MarkdownText, MessageBox
+
+import requests
+import urwid
+
 from sclack.component.message import Message
-from sclack.components import NewMessagesDivider, Profile, ProfileSideBar
-from sclack.components import Reaction, SideBar, TextDivider
-from sclack.components import User, Workspaces
+from sclack.components import (Attachment, Channel, ChannelHeader, ChatBox, Dm,
+                               Indicators, MarkdownText, MessageBox,
+                               NewMessagesDivider, Profile, ProfileSideBar,
+                               Reaction, SideBar, TextDivider, User,
+                               Workspaces)
 from sclack.image import Image
 from sclack.loading import LoadingChatBox, LoadingSideBar
 from sclack.quick_switcher import QuickSwitcher
 from sclack.store import Store
 from sclack.themes import themes
-
+from sclack.utils.channel import is_channel, is_dm, is_group
 from sclack.widgets.set_snooze import SetSnoozeWidget
-from sclack.utils.channel import is_dm, is_group, is_channel
 
 loop = asyncio.get_event_loop()
 
-SCLACK_SUBTYPE = 'sclack_message'
+SCLACK_SUBTYPE = "sclack_message"
 MARK_READ_ALARM_PERIOD = 3
 
 
@@ -46,13 +47,18 @@ class App:
 
     def _exception_handler(self, loop, context):
         try:
-            exception = context.get('exception')
+            exception = context.get("exception")
             if not exception:
                 raise Exception
-            message = 'Whoops, something went wrong:\n\n' + str(exception) + '\n' + ''.join(traceback.format_tb(exception.__traceback__))
+            message = (
+                "Whoops, something went wrong:\n\n"
+                + str(exception)
+                + "\n"
+                + "".join(traceback.format_tb(exception.__traceback__))
+            )
             self.chatbox = LoadingChatBox(message)
         except Exception as exc:
-            self.chatbox = LoadingChatBox('Unable to show exception: ' + str(exc))
+            self.chatbox = LoadingChatBox("Unable to show exception: " + str(exc))
         return
 
     def __init__(self, config):
@@ -60,13 +66,13 @@ class App:
         self.config = config
         self.quick_switcher = None
         self.set_snooze_widget = None
-        self.workspaces = list(config['workspaces'].items())
+        self.workspaces = list(config["workspaces"].items())
         self.store = Store(self.workspaces, self.config)
         Store.instance = self.store
-        urwid.set_encoding('UTF-8')
+        urwid.set_encoding("UTF-8")
         sidebar = LoadingSideBar()
-        chatbox = LoadingChatBox('Everything is terrible!')
-        palette = themes.get(config['theme'], themes['default'])
+        chatbox = LoadingChatBox("Everything is terrible!")
+        palette = themes.get(config["theme"], themes["default"])
 
         custom_loop = SclackEventLoop(loop=loop)
         custom_loop.set_exception_handler(self._exception_handler)
@@ -76,17 +82,23 @@ class App:
         else:
             self.workspaces_line = Workspaces(self.workspaces)
 
-        self.columns = urwid.Columns([
-            ('fixed', config['sidebar']['width'], urwid.AttrWrap(sidebar, 'sidebar')),
-            urwid.AttrWrap(chatbox, 'chatbox')
-        ])
+        self.columns = urwid.Columns(
+            [
+                (
+                    "fixed",
+                    config["sidebar"]["width"],
+                    urwid.AttrWrap(sidebar, "sidebar"),
+                ),
+                urwid.AttrWrap(chatbox, "chatbox"),
+            ]
+        )
         self._body = urwid.Frame(self.columns, header=self.workspaces_line)
 
         self.urwid_loop = urwid.MainLoop(
             self._body,
             palette=palette,
             event_loop=custom_loop,
-            unhandled_input=self.unhandled_input
+            unhandled_input=self.unhandled_input,
         )
         self.configure_screen(self.urwid_loop.screen)
         self.last_keypress = (0, None)
@@ -94,7 +106,6 @@ class App:
     @property
     def sidebar_column(self):
         return self.columns.contents[0]
-
 
     def start(self):
         self._loading = True
@@ -106,7 +117,7 @@ class App:
         if not self._loading:
             self._loading = True
             self.sidebar = LoadingSideBar()
-            self.chatbox = LoadingChatBox('And it becomes worse!')
+            self.chatbox = LoadingChatBox("And it becomes worse!")
             self.message_box = None
             self.store.switch_to_workspace(workspace_number)
             loop.create_task(self.animate_loading())
@@ -132,23 +143,21 @@ class App:
     def chatbox(self, chatbox):
         self.columns.contents[1][0].original_widget = chatbox
 
-    @asyncio.coroutine
-    def animate_loading(self):
+    async def animate_loading(self):
         def update(*args):
             if self._loading:
                 self.chatbox.circular_loading.next_frame()
                 self.urwid_loop.set_alarm_in(0.2, update)
+
         update()
 
-    @asyncio.coroutine
-    def component_did_mount(self):
+    async def component_did_mount(self):
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            yield from self.mount_sidebar(executor)
-            yield from self.mount_chatbox(executor, self.store.state.channels[0]['id'])
+            await self.mount_sidebar(executor)
+            await self.mount_chatbox(executor, self.store.state.channels[0]["id"])
 
-    @asyncio.coroutine
-    def mount_sidebar(self, executor):
-        yield from asyncio.gather(
+    async def mount_sidebar(self, executor):
+        await asyncio.gather(
             loop.run_in_executor(executor, self.store.load_auth),
             loop.run_in_executor(executor, self.store.load_channels),
             loop.run_in_executor(executor, self.store.load_stars),
@@ -156,7 +165,9 @@ class App:
             loop.run_in_executor(executor, self.store.load_users),
             loop.run_in_executor(executor, self.store.load_user_dnd),
         )
-        profile = Profile(name=self.store.state.auth['user'], is_snoozed=self.store.state.is_snoozed)
+        profile = Profile(
+            name=self.store.state.auth["user"], is_snoozed=self.store.state.is_snoozed
+        )
 
         channels = []
         dms = []
@@ -164,123 +175,144 @@ class App:
         star_user_tmp = []  # To contain user, channel should be on top of list
         stars_user_id = []  # To ignore item in DMs list
         stars_channel_id = []  # To ignore item in channels list
-        max_users_sidebar = self.store.config['sidebar']['max_users']
+        max_users_sidebar = self.store.config["sidebar"]["max_users"]
 
         # Prepare list of Star users and channels
         for dm in self.store.state.stars:
-            if is_dm(dm['channel']):
-                detail = self.store.get_channel_info(dm['channel'])
-                user = self.store.find_user_by_id(detail['user'])
+            if is_dm(dm["channel"]):
+                detail = self.store.get_channel_info(dm["channel"])
+                user = self.store.find_user_by_id(detail["user"])
 
                 if user:
-                    stars_user_id.append(user['id'])
-                    star_user_tmp.append(Dm(
-                        dm['channel'],
-                        name=self.store.get_user_display_name(user),
-                        user=user['id'],
-                        you=False
-                    ))
-            elif is_channel(dm['channel']) or is_group(dm['channel']):
-                channel = self.store.get_channel_info(dm['channel'])
-                # Group chat (is_mpim) is not supported, prefer to https://github.com/haskellcamargo/sclack/issues/67
-                if channel and not channel.get('is_archived', False) and not channel.get('is_mpim', False):
-                    stars_channel_id.append(channel['id'])
-                    stars.append(Channel(
-                        id=channel['id'],
-                        name=channel['name'],
-                        is_private=channel.get('is_private', True)
-                    ))
+                    stars_user_id.append(user["id"])
+                    star_user_tmp.append(
+                        Dm(
+                            dm["channel"],
+                            name=self.store.get_user_display_name(user),
+                            user=user["id"],
+                            you=False,
+                        )
+                    )
+            elif is_channel(dm["channel"]) or is_group(dm["channel"]):
+                channel = self.store.get_channel_info(dm["channel"])
+                # Group chat (is_mpim) is not supported, prefer to
+                # https://github.com/haskellcamargo/sclack/issues/67
+                if (
+                    channel
+                    and not channel.get("is_archived", False)
+                    and not channel.get("is_mpim", False)
+                ):
+                    stars_channel_id.append(channel["id"])
+                    stars.append(
+                        Channel(
+                            id=channel["id"],
+                            name=channel["name"],
+                            is_private=channel.get("is_private", True),
+                        )
+                    )
         stars.extend(star_user_tmp)
 
         # Prepare list of Channels
         for channel in self.store.state.channels:
-            if channel['id'] in stars_channel_id:
+            if channel["id"] in stars_channel_id:
                 continue
-            channels.append(Channel(
-                id=channel['id'],
-                name=channel['name'],
-                is_private=channel['is_private']
-            ))
+            channels.append(
+                Channel(
+                    id=channel["id"],
+                    name=channel["name"],
+                    is_private=channel["is_private"],
+                )
+            )
 
         # Prepare list of DM
         dm_users = self.store.state.dms[:max_users_sidebar]
         for dm in dm_users:
-            if dm['user'] in stars_user_id:
+            if dm["user"] in stars_user_id:
                 continue
-            user = self.store.find_user_by_id(dm['user'])
+            user = self.store.find_user_by_id(dm["user"])
             if user:
-                dms.append(Dm(
-                    dm['id'],
-                    name=self.store.get_user_display_name(user),
-                    user=dm['user'],
-                    you=user['id'] == self.store.state.auth['user_id']
-                ))
+                dms.append(
+                    Dm(
+                        dm["id"],
+                        name=self.store.get_user_display_name(user),
+                        user=dm["user"],
+                        you=user["id"] == self.store.state.auth["user_id"],
+                    )
+                )
 
-        self.sidebar = SideBar(profile, channels, dms, stars=stars, title=self.store.state.auth['team'])
-        urwid.connect_signal(self.sidebar, 'go_to_channel', self.go_to_channel)
-        loop.create_task(self.get_channels_info(executor, self.sidebar.get_all_channels()))
+        self.sidebar = SideBar(
+            profile, channels, dms, stars=stars, title=self.store.state.auth["team"]
+        )
+        urwid.connect_signal(self.sidebar, "go_to_channel", self.go_to_channel)
+        loop.create_task(
+            self.get_channels_info(executor, self.sidebar.get_all_channels())
+        )
         loop.create_task(self.get_presences(executor, self.sidebar.get_all_dms()))
         loop.create_task(self.get_dms_unread(executor, self.sidebar.get_all_dms()))
 
-    @asyncio.coroutine
-    def get_presences(self, executor, dm_widgets):
+    async def get_presences(self, executor, dm_widgets):
         """
         Compute and return presence because updating UI from another thread is unsafe
         :param executor:
         :param dm_widgets:
         :return:
         """
+
         def get_presence(dm_widget):
             presence = self.store.get_presence(dm_widget.user)
             return [dm_widget, presence]
-        presences = yield from asyncio.gather(*[
-            loop.run_in_executor(executor, get_presence, dm_widget)
-            for dm_widget in dm_widgets
-        ])
+
+        presences = await asyncio.gather(
+            *[
+                loop.run_in_executor(executor, get_presence, dm_widget)
+                for dm_widget in dm_widgets
+            ]
+        )
 
         for presence in presences:
             [widget, response] = presence
-            if response['ok']:
-                widget.set_presence(response['presence'])
+            if response["ok"]:
+                widget.set_presence(response["presence"])
 
-    @asyncio.coroutine
-    def get_dms_unread(self, executor, dm_widgets):
+    async def get_dms_unread(self, executor, dm_widgets):
         """
-        Compute and return unread_count_display because updating UI from another thread is unsafe
+        Compute and return unread_count_display because updating UI from
+        another thread is unsafe
         :param executor:
         :param dm_widgets:
         :return:
         """
+
         def get_presence(dm_widget):
             profile_response = self.store.get_channel_info(dm_widget.id)
             return [dm_widget, profile_response]
 
-        responses = yield from asyncio.gather(*[
-            loop.run_in_executor(executor, get_presence, dm_widget)
-            for dm_widget in dm_widgets
-        ])
+        responses = await asyncio.gather(
+            *[
+                loop.run_in_executor(executor, get_presence, dm_widget)
+                for dm_widget in dm_widgets
+            ]
+        )
 
         for profile_response in responses:
             [widget, response] = profile_response
             if response is not None:
-                widget.set_unread(response['unread_count_display'])
+                widget.set_unread(response["unread_count_display"])
 
-    @asyncio.coroutine
-    def get_channels_info(self, executor, channels):
+    async def get_channels_info(self, executor, channels):
         def get_info(channel):
             info = self.store.get_channel_info(channel.id)
             return [channel, info]
-        channels_info = yield from asyncio.gather(*[
-            loop.run_in_executor(executor, get_info, channel)
-            for channel in channels
-        ])
+
+        channels_info = await asyncio.gather(
+            *[loop.run_in_executor(executor, get_info, channel) for channel in channels]
+        )
 
         for channel_info in channels_info:
             [widget, response] = channel_info
-            widget.set_unread(response.get('unread_count_display', 0))
+            widget.set_unread(response.get("unread_count_display", 0))
 
-    @asyncio.coroutine
-    def update_chat(self, event):
+    async def update_chat(self, event):
         """
         Update channel/DM message count badge
         :param event:
@@ -288,33 +320,40 @@ class App:
         """
         self.sidebar.update_items(event)
 
-    @asyncio.coroutine
-    def mount_chatbox(self, executor, channel):
-        yield from asyncio.gather(
+    async def mount_chatbox(self, executor, channel):
+        await asyncio.gather(
             loop.run_in_executor(executor, self.store.load_channel, channel),
-            loop.run_in_executor(executor, self.store.load_messages, channel)
+            loop.run_in_executor(executor, self.store.load_messages, channel),
         )
         messages = self.render_messages(self.store.state.messages)
         header = self.render_chatbox_header()
         self._loading = False
         self.sidebar.select_channel(channel)
         self.message_box = MessageBox(
-            user=self.store.state.auth['user'],
-            is_read_only=self.store.state.channel.get('is_read_only', False)
+            user=self.store.state.auth["user"],
+            is_read_only=self.store.state.channel.get("is_read_only", False),
         )
         self.chatbox = ChatBox(messages, header, self.message_box, self.urwid_loop)
-        urwid.connect_signal(self.chatbox, 'set_insert_mode', self.set_insert_mode)
-        urwid.connect_signal(self.chatbox, 'mark_read', self.handle_mark_read)
-        urwid.connect_signal(self.chatbox, 'open_quick_switcher', self.open_quick_switcher)
-        urwid.connect_signal(self.chatbox, 'open_set_snooze', self.open_set_snooze)
+        urwid.connect_signal(self.chatbox, "set_insert_mode", self.set_insert_mode)
+        urwid.connect_signal(self.chatbox, "mark_read", self.handle_mark_read)
+        urwid.connect_signal(
+            self.chatbox, "open_quick_switcher", self.open_quick_switcher
+        )
+        urwid.connect_signal(self.chatbox, "open_set_snooze", self.open_set_snooze)
 
-        urwid.connect_signal(self.message_box.prompt_widget, 'submit_message', self.submit_message)
-        urwid.connect_signal(self.message_box.prompt_widget, 'go_to_last_message', self.go_to_last_message)
+        urwid.connect_signal(
+            self.message_box.prompt_widget, "submit_message", self.submit_message
+        )
+        urwid.connect_signal(
+            self.message_box.prompt_widget,
+            "go_to_last_message",
+            self.go_to_last_message,
+        )
 
         self.real_time_task = loop.create_task(self.start_real_time())
 
     def edit_message(self, widget, user_id, ts, original_text):
-        is_logged_user = self.store.state.auth['user_id'] == user_id
+        is_logged_user = self.store.state.auth["user_id"] == user_id
         current_date = datetime.today()
         message_date = datetime.fromtimestamp(float(ts))
         # Only messages sent in the last 5 minutes can be edited
@@ -327,16 +366,16 @@ class App:
     def get_permalink(self, widget, channel_id, ts):
         try:
             permalink = self.store.get_permalink(channel_id, ts)
-            if permalink and permalink.get('permalink'):
-                text = permalink.get('permalink')
+            if permalink and permalink.get("permalink"):
+                text = permalink.get("permalink")
                 self.set_insert_mode()
                 self.chatbox.message_box.text = text
-        except:
+        except Exception:
             pass
 
     def delete_message(self, widget, user_id, ts):
-        if self.store.state.auth['user_id'] == user_id:
-            if self.store.delete_message(self.store.state.channel['id'], ts)['ok']:
+        if self.store.state.auth["user_id"] == user_id:
+            if self.store.delete_message(self.store.state.channel["id"], ts)["ok"]:
                 self.chatbox.body.body.remove(widget)
 
     def go_to_profile(self, user_id):
@@ -350,175 +389,190 @@ class App:
                 return
             self.store.state.profile_user_id = user_id
             profile = ProfileSideBar(
-                user.get('display_name') or user.get('real_name') or user['name'],
-                user['profile'].get('status_text', None),
-                user['profile'].get('tz_label', None),
-                user['profile'].get('phone', None),
-                user['profile'].get('email', None),
-                user['profile'].get('skype', None)
+                user.get("display_name") or user.get("real_name") or user["name"],
+                user["profile"].get("status_text", None),
+                user["profile"].get("tz_label", None),
+                user["profile"].get("phone", None),
+                user["profile"].get("email", None),
+                user["profile"].get("skype", None),
             )
-            if self.config['features']['pictures']:
-                loop.create_task(self.load_profile_avatar(user['profile'].get('image_512'), profile))
-            self.columns.contents.append((profile, ('given', 35, False)))
+            if self.config["features"]["pictures"]:
+                loop.create_task(
+                    self.load_profile_avatar(user["profile"].get("image_512"), profile)
+                )
+            self.columns.contents.append((profile, ("given", 35, False)))
 
     def render_chatbox_header(self):
 
-        if self.store.state.channel['id'][0] == 'D':
-            user = self.store.find_user_by_id(self.store.state.channel['user'])
+        if self.store.state.channel["id"][0] == "D":
+            user = self.store.find_user_by_id(self.store.state.channel["user"])
             header = ChannelHeader(
-                name=user.get('display_name') or user.get('real_name') or user['name'],
-                topic=user['profile']['status_text'],
-                is_starred=self.store.state.channel.get('is_starred', False),
-                is_dm_workaround_please_remove_me=True
+                name=user.get("display_name") or user.get("real_name") or user["name"],
+                topic=user["profile"]["status_text"],
+                is_starred=self.store.state.channel.get("is_starred", False),
+                is_dm_workaround_please_remove_me=True,
             )
         else:
             are_more_members = False
-            if self.store.state.members.get('response_metadata', None):
-                if self.store.state.members['response_metadata'].get('next_cursor', None):
+            if self.store.state.members.get("response_metadata", None):
+                if self.store.state.members["response_metadata"].get(
+                    "next_cursor", None
+                ):
                     are_more_members = True
             header = ChannelHeader(
-                name=self.store.state.channel['name'],
-                topic=self.store.state.channel['topic']['value'],
-                num_members=len(self.store.state.members['members']),
+                name=self.store.state.channel["name"],
+                topic=self.store.state.channel["topic"]["value"],
+                num_members=len(self.store.state.members["members"]),
                 more_members=are_more_members,
                 pin_count=self.store.state.pin_count,
-                is_private=self.store.state.channel.get('is_group', False),
-                is_starred=self.store.state.channel.get('is_starred', False)
+                is_private=self.store.state.channel.get("is_group", False),
+                is_starred=self.store.state.channel.get("is_starred", False),
             )
-            urwid.connect_signal(header.topic_widget, 'done', self.on_change_topic)
+            urwid.connect_signal(header.topic_widget, "done", self.on_change_topic)
         return header
 
     def on_change_topic(self, text):
         self.chatbox.header.original_topic = text
-        self.store.set_topic(self.store.state.channel['id'], text)
+        self.store.set_topic(self.store.state.channel["id"], text)
         self.go_to_sidebar()
 
     def render_message(self, message, channel_id=None):
         is_app = False
-        subtype = message.get('subtype')
+        subtype = message.get("subtype")
 
         if subtype == SCLACK_SUBTYPE:
             message = Message(
-                message['ts'],
-                '',
-                User('1', 'sclack'),
-                MarkdownText(message['text']),
-                Indicators(False, False)
+                message["ts"],
+                "",
+                User("1", "sclack"),
+                MarkdownText(message["text"]),
+                Indicators(False, False),
             )
-            urwid.connect_signal(message, 'go_to_sidebar', self.go_to_sidebar)
-            urwid.connect_signal(message, 'quit_application', self.quit_application)
-            urwid.connect_signal(message, 'set_insert_mode', self.set_insert_mode)
-            urwid.connect_signal(message, 'mark_read', self.handle_mark_read)
+            urwid.connect_signal(message, "go_to_sidebar", self.go_to_sidebar)
+            urwid.connect_signal(message, "quit_application", self.quit_application)
+            urwid.connect_signal(message, "set_insert_mode", self.set_insert_mode)
+            urwid.connect_signal(message, "mark_read", self.handle_mark_read)
 
             return message
 
-        message_text = message['text']
-        files = message.get('files', [])
+        message_text = message["text"]
+        files = message.get("files", [])
 
         # Files uploaded
         if len(files) > 0:
-            file_links = ['"{}" <{}>'.format(file.get('title'), file.get('url_private')) for file in message.get('files')]
-            file_upload_text = 'File{} uploaded'.format('' if len(files) == 1 else 's')
-            file_text = '{} {}'.format(file_upload_text ,', '.join(file_links))
+            file_links = [
+                '"{}" <{}>'.format(file.get("title"), file.get("url_private"))
+                for file in message.get("files")
+            ]
+            file_upload_text = "File{} uploaded".format("" if len(files) == 1 else "s")
+            file_text = "{} {}".format(file_upload_text, ", ".join(file_links))
 
-            if message_text == '':
+            if message_text == "":
                 message_text = file_text
             else:
-                message_text = '{}\n{}'.format(message_text, file_text)
+                message_text = "{}\n{}".format(message_text, file_text)
 
-        if subtype == 'bot_message':
-            bot = (self.store.find_user_by_id(message['bot_id'])
-                or self.store.find_or_load_bot(message['bot_id']))
+        if subtype == "bot_message":
+            bot = self.store.find_user_by_id(
+                message["bot_id"]
+            ) or self.store.find_or_load_bot(message["bot_id"])
             if bot:
-                user_id = message['bot_id']
-                user_name = bot.get('profile', {}).get('display_name') or bot.get('name')
-                color = bot.get('color')
-                is_app = 'app_id' in bot
+                user_id = message["bot_id"]
+                user_name = bot.get("profile", {}).get("display_name") or bot.get(
+                    "name"
+                )
+                color = bot.get("color")
+                is_app = "app_id" in bot
             else:
                 return None
-        elif subtype == 'file_comment':
-            user = self.store.find_user_by_id(message['comment']['user'])
+        elif subtype == "file_comment":
+            user = self.store.find_user_by_id(message["comment"]["user"])
 
             # A temporary fix for a null pointer exception for truncated or deleted users
             if user is None:
                 return None
 
-            user_id = user['id']
-            user_name = user['profile']['display_name'] or user.get('name')
-            color = user.get('color')
-            if message.get('file'):
-                message['file'] = None
+            user_id = user["id"]
+            user_name = user["profile"]["display_name"] or user.get("name")
+            color = user.get("color")
+            if message.get("file"):
+                message["file"] = None
         else:
-            user = self.store.find_user_by_id(message['user'])
+            user = self.store.find_user_by_id(message["user"])
 
             # A temporary fix for a null pointer exception for truncated or deleted users
             if user is None:
                 return None
 
-            user_id = user['id']
-            user_name = user['profile']['display_name'] or user.get('name')
-            color = user.get('color')
+            user_id = user["id"]
+            user_name = user["profile"]["display_name"] or user.get("name")
+            color = user.get("color")
 
         user = User(user_id, user_name, color, is_app)
         text = MarkdownText(message_text)
-        indicators = Indicators('edited' in message, message.get('is_starred', False))
+        indicators = Indicators("edited" in message, message.get("is_starred", False))
         reactions = [
-            Reaction(reaction['name'], reaction['count'])
-            for reaction in message.get('reactions', [])
+            Reaction(reaction["name"], reaction["count"])
+            for reaction in message.get("reactions", [])
         ]
 
         attachments = []
-        for attachment in message.get('attachments', []):
+        for attachment in message.get("attachments", []):
             attachment_widget = Attachment(
-                service_name=attachment.get('service_name'),
-                title=attachment.get('title'),
-                from_url=attachment.get('from_url'),
-                fields=attachment.get('fields'),
-                color=attachment.get('color'),
-                author_name=attachment.get('author_name') or attachment.get('author_subname'),
-                pretext=attachment.get('pretext'),
+                service_name=attachment.get("service_name"),
+                title=attachment.get("title"),
+                from_url=attachment.get("from_url"),
+                fields=attachment.get("fields"),
+                color=attachment.get("color"),
+                author_name=attachment.get("author_name")
+                or attachment.get("author_subname"),
+                pretext=attachment.get("pretext"),
                 text=message_text,
-                attachment_text=attachment.get('text'),
-                ts=attachment.get('ts'),
-                footer=attachment.get('footer')
+                attachment_text=attachment.get("text"),
+                ts=attachment.get("ts"),
+                footer=attachment.get("footer"),
             )
-            image_url = attachment.get('image_url')
-            if image_url and self.config['features']['pictures']:
-                loop.create_task(self.load_picture_async(
-                    image_url,
-                    attachment.get('image_width', 500),
-                    attachment_widget,
-                    auth=False
-                ))
+            image_url = attachment.get("image_url")
+            if image_url and self.config["features"]["pictures"]:
+                loop.create_task(
+                    self.load_picture_async(
+                        image_url,
+                        attachment.get("image_width", 500),
+                        attachment_widget,
+                        auth=False,
+                    )
+                )
             attachments.append(attachment_widget)
 
-        file = message.get('file')
+        file = message.get("file")
 
         if file:
             files.append(file)
 
-        message_channel = channel_id if channel_id is not None else message.get('channel')
+        message_channel = (
+            channel_id if channel_id is not None else message.get("channel")
+        )
 
         message = Message(
-            message['ts'],
+            message["ts"],
             message_channel,
             user,
             text,
             indicators,
             attachments=attachments,
-            reactions=reactions
+            reactions=reactions,
         )
 
         self.lazy_load_images(files, message)
 
-        urwid.connect_signal(message, 'edit_message', self.edit_message)
-        urwid.connect_signal(message, 'get_permalink', self.get_permalink)
-        urwid.connect_signal(message, 'go_to_profile', self.go_to_profile)
-        urwid.connect_signal(message, 'go_to_sidebar', self.go_to_sidebar)
-        urwid.connect_signal(message, 'delete_message', self.delete_message)
-        urwid.connect_signal(message, 'quit_application', self.quit_application)
-        urwid.connect_signal(message, 'set_insert_mode', self.set_insert_mode)
-        urwid.connect_signal(message, 'mark_read', self.handle_mark_read)
+        urwid.connect_signal(message, "edit_message", self.edit_message)
+        urwid.connect_signal(message, "get_permalink", self.get_permalink)
+        urwid.connect_signal(message, "go_to_profile", self.go_to_profile)
+        urwid.connect_signal(message, "go_to_sidebar", self.go_to_sidebar)
+        urwid.connect_signal(message, "delete_message", self.delete_message)
+        urwid.connect_signal(message, "quit_application", self.quit_application)
+        urwid.connect_signal(message, "set_insert_mode", self.set_insert_mode)
+        urwid.connect_signal(message, "mark_read", self.handle_mark_read)
 
         return message
 
@@ -529,27 +583,31 @@ class App:
         :param widget:
         :return:
         """
-        if not self.config['features']['pictures']:
+        if not self.config["features"]["pictures"]:
             return
 
-        allowed_file_types = ('bmp', 'gif', 'jpeg', 'jpg', 'png')
+        allowed_file_types = ("bmp", "gif", "jpeg", "jpg", "png")
 
         for file in files:
-            if file.get('filetype') in allowed_file_types:
-                loop.create_task(self.load_picture_async(
-                    file['url_private'],
-                    file.get('original_w', 500),
-                    widget,
-                    not file.get('is_external', True)
-                ))
+            if file.get("filetype") in allowed_file_types:
+                loop.create_task(
+                    self.load_picture_async(
+                        file["url_private"],
+                        file.get("original_w", 500),
+                        widget,
+                        not file.get("is_external", True),
+                    )
+                )
 
     def render_messages(self, messages, channel_id=None):
         _messages = []
         previous_date = self.store.state.last_date
-        last_read_datetime = datetime.fromtimestamp(float(self.store.state.channel.get('last_read', '0')))
+        last_read_datetime = datetime.fromtimestamp(
+            float(self.store.state.channel.get("last_read", "0"))
+        )
         today = datetime.today().date()
         for message in messages:
-            message_datetime = datetime.fromtimestamp(float(message['ts']))
+            message_datetime = datetime.fromtimestamp(float(message["ts"]))
             message_date = message_datetime.date()
             date_text = None
             unread_text = None
@@ -557,19 +615,22 @@ class App:
                 previous_date = message_date
                 self.store.state.last_date = previous_date
                 if message_date == today:
-                    date_text = 'Today'
+                    date_text = "Today"
                 else:
-                    date_text = message_date.strftime('%A, %B %d')
+                    date_text = message_date.strftime("%A, %B %d")
 
             # New messages badge
-            if (message_datetime > last_read_datetime and not self.store.state.did_render_new_messages
-                and (self.store.state.channel.get('unread_count_display', 0) > 0)):
+            if (
+                message_datetime > last_read_datetime
+                and not self.store.state.did_render_new_messages
+                and (self.store.state.channel.get("unread_count_display", 0) > 0)
+            ):
                 self.store.state.did_render_new_messages = True
-                unread_text = 'new messages'
+                unread_text = "new messages"
             if unread_text is not None:
                 _messages.append(NewMessagesDivider(unread_text, date=date_text))
             elif date_text is not None:
-                _messages.append(TextDivider(('history_date', date_text), 'center'))
+                _messages.append(TextDivider(("history_date", date_text), "center"))
 
             message = self.render_message(message, channel_id)
 
@@ -586,24 +647,25 @@ class App:
         row_index = data if data is not None else -1
 
         def read(*kwargs):
-            loop.create_task(
-                self.mark_read_slack(row_index)
-            )
+            loop.create_task(self.mark_read_slack(row_index))
 
         now = time.time()
-        if now - self.last_keypress[0] < MARK_READ_ALARM_PERIOD and self.last_keypress[1] is not None:
+        if (
+            now - self.last_keypress[0] < MARK_READ_ALARM_PERIOD
+            and self.last_keypress[1] is not None
+        ):
             self.urwid_loop.remove_alarm(self.last_keypress[1])
 
-        self.last_keypress = (now, self.urwid_loop.set_alarm_in(MARK_READ_ALARM_PERIOD, read))
+        self.last_keypress = (
+            now,
+            self.urwid_loop.set_alarm_in(MARK_READ_ALARM_PERIOD, read),
+        )
 
     def scroll_messages(self, *args):
         index = self.chatbox.body.scroll_to_new_messages()
-        loop.create_task(
-            self.mark_read_slack(index)
-        )
+        loop.create_task(self.mark_read_slack(index))
 
-    @asyncio.coroutine
-    def mark_read_slack(self, index):
+    async def mark_read_slack(self, index):
         if not self.is_chatbox_rendered:
             return
 
@@ -614,7 +676,7 @@ class App:
             message = self.chatbox.body.body[index]
 
             # Only apply for message
-            if not hasattr(message, 'channel_id'):
+            if not hasattr(message, "channel_id"):
                 if len(self.chatbox.body.body) > index + 1:
                     message = self.chatbox.body.body[index + 1]
                 else:
@@ -623,29 +685,36 @@ class App:
             if message.channel_id:
                 self.store.mark_read(message.channel_id, message.ts)
 
-    @asyncio.coroutine
-    def _go_to_channel(self, channel_id):
+    async def _go_to_channel(self, channel_id):
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            yield from asyncio.gather(
+            await asyncio.gather(
                 loop.run_in_executor(executor, self.store.load_channel, channel_id),
-                loop.run_in_executor(executor, self.store.load_messages, channel_id)
+                loop.run_in_executor(executor, self.store.load_messages, channel_id),
             )
             self.store.state.last_date = None
 
             if len(self.store.state.messages) == 0:
-                messages = self.render_messages([{
-                    'text': "There's no conversation in this channel",
-                    'ts': '0',
-                    'subtype': SCLACK_SUBTYPE,
-                }])
+                messages = self.render_messages(
+                    [
+                        {
+                            "text": "There's no conversation in this channel",
+                            "ts": "0",
+                            "subtype": SCLACK_SUBTYPE,
+                        }
+                    ]
+                )
             else:
-                messages = self.render_messages(self.store.state.messages, channel_id=channel_id)
+                messages = self.render_messages(
+                    self.store.state.messages, channel_id=channel_id
+                )
 
             header = self.render_chatbox_header()
             if self.is_chatbox_rendered:
                 self.chatbox.body.body[:] = messages
                 self.chatbox.header = header
-                self.chatbox.message_box.is_read_only = self.store.state.channel.get('is_read_only', False)
+                self.chatbox.message_box.is_read_only = self.store.state.channel.get(
+                    "is_read_only", False
+                )
                 self.sidebar.select_channel(channel_id)
                 self.urwid_loop.set_alarm_in(0, self.scroll_messages)
 
@@ -656,7 +725,9 @@ class App:
 
     def go_to_channel(self, channel_id):
         if self.quick_switcher:
-            urwid.disconnect_signal(self.quick_switcher, 'go_to_channel', self.go_to_channel)
+            urwid.disconnect_signal(
+                self.quick_switcher, "go_to_channel", self.go_to_channel
+            )
             self.urwid_loop.widget = self._body
             self.quick_switcher = None
         loop.create_task(self._go_to_channel(channel_id))
@@ -670,17 +741,19 @@ class App:
         :return:
         """
         if self.set_snooze_widget:
-            urwid.disconnect_signal(self.set_snooze_widget, 'set_snooze_time', self.handle_set_snooze_time)
-            urwid.disconnect_signal(self.set_snooze_widget, 'close_set_snooze', self.handle_close_set_snooze)
+            urwid.disconnect_signal(
+                self.set_snooze_widget, "set_snooze_time", self.handle_set_snooze_time
+            )
+            urwid.disconnect_signal(
+                self.set_snooze_widget, "close_set_snooze", self.handle_close_set_snooze
+            )
             self.urwid_loop.widget = self._body
             self.set_snooze_widget = None
 
-    @asyncio.coroutine
-    def dispatch_snooze_time(self, snoozed_time):
+    async def dispatch_snooze_time(self, snoozed_time):
         self.store.set_snooze(snoozed_time)
 
-    @asyncio.coroutine
-    def load_picture_async(self, url, width, message_widget, auth=True):
+    async def load_picture_async(self, url, width, message_widget, auth=True):
         width = min(width, 800)
         bytes_in_cache = self.store.cache.picture.get(url)
         if bytes_in_cache:
@@ -689,10 +762,9 @@ class App:
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
             headers = {}
             if auth:
-                headers = {'Authorization': 'Bearer {}'.format(self.store.slack_token)}
-            bytes = yield from loop.run_in_executor(
-                executor,
-                functools.partial(requests.get, url, headers=headers)
+                headers = {"Authorization": "Bearer {}".format(self.store.slack_token)}
+            bytes = await loop.run_in_executor(
+                executor, functools.partial(requests.get, url, headers=headers)
             )
             file = tempfile.NamedTemporaryFile(delete=False)
             file.write(bytes.content)
@@ -700,14 +772,13 @@ class App:
             picture = Image(file.name, width=(width / 10))
             message_widget.file = picture
 
-    @asyncio.coroutine
-    def load_profile_avatar(self, url, profile):
+    async def load_profile_avatar(self, url, profile):
         bytes_in_cache = self.store.cache.avatar.get(url)
         if bytes_in_cache:
             profile.avatar = bytes_in_cache
             return
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            bytes = yield from loop.run_in_executor(executor, requests.get, url)
+            bytes = await loop.run_in_executor(executor, requests.get, url)
             file = tempfile.NamedTemporaryFile(delete=False)
             file.write(bytes.content)
             file.close()
@@ -715,8 +786,7 @@ class App:
             self.store.cache.avatar[url] = avatar
             profile.avatar = avatar
 
-    @asyncio.coroutine
-    def start_real_time(self):
+    async def start_real_time(self):
         self.store.slack.rtm_connect(auto_reconnect=True)
 
         def stop_typing(*args):
@@ -730,53 +800,67 @@ class App:
             events = self.store.slack.rtm_read()
 
             for event in events:
-                if event.get('type') == 'hello':
+                if event.get("type") == "hello":
                     pass
-                elif event.get('type') in ('channel_marked', 'group_marked', 'im_marked'):
-                    unread = event.get('unread_count_display', 0)
+                elif event.get("type") in (
+                    "channel_marked",
+                    "group_marked",
+                    "im_marked",
+                ):
+                    unread = event.get("unread_count_display", 0)
 
-                    if event.get('type') == 'channel_marked':
+                    if event.get("type") == "channel_marked":
                         targets = self.sidebar.get_all_channels()
-                    elif event.get('type') == 'group_marked':
+                    elif event.get("type") == "group_marked":
                         targets = self.sidebar.get_all_groups()
                     else:
                         targets = self.sidebar.get_all_dms()
 
                     for target in targets:
-                        if target.id == event['channel']:
+                        if target.id == event["channel"]:
                             target.set_unread(unread)
 
-                elif event['type'] == 'message':
-                    loop.create_task(
-                        self.update_chat(event)
-                    )
+                elif event["type"] == "message":
+                    loop.create_task(self.update_chat(event))
 
-                    if event.get('channel') == self.store.state.channel['id']:
+                    if event.get("channel") == self.store.state.channel["id"]:
                         if not self.is_chatbox_rendered:
                             return
 
-                        if event.get('subtype') == 'message_deleted':
+                        if event.get("subtype") == "message_deleted":
                             for widget in self.chatbox.body.body:
-                                if hasattr(widget, 'ts') and getattr(widget, 'ts') == event['deleted_ts']:
+                                if (
+                                    hasattr(widget, "ts")
+                                    and getattr(widget, "ts") == event["deleted_ts"]
+                                ):
                                     self.chatbox.body.body.remove(widget)
                                     break
-                        elif event.get('subtype') == 'message_changed':
+                        elif event.get("subtype") == "message_changed":
                             for index, widget in enumerate(self.chatbox.body.body):
-                                if hasattr(widget, 'ts') and getattr(widget, 'ts') == event['message']['ts']:
-                                    self.chatbox.body.body[index] = self.render_message(event['message'])
+                                if (
+                                    hasattr(widget, "ts")
+                                    and getattr(widget, "ts") == event["message"]["ts"]
+                                ):
+                                    self.chatbox.body.body[index] = self.render_message(
+                                        event["message"]
+                                    )
                                     break
                         else:
                             self.chatbox.body.body.extend(self.render_messages([event]))
                             self.chatbox.body.scroll_to_bottom()
                     else:
                         pass
-                elif event['type'] == 'user_typing':
+                elif event["type"] == "user_typing":
                     if not self.is_chatbox_rendered:
                         return
 
-                    if event.get('channel') == self.store.state.channel['id']:
-                        user = self.store.find_user_by_id(event['user'])
-                        name = user.get('display_name') or user.get('real_name') or user['name']
+                    if event.get("channel") == self.store.state.channel["id"]:
+                        user = self.store.find_user_by_id(event["user"])
+                        name = (
+                            user.get("display_name")
+                            or user.get("real_name")
+                            or user["name"]
+                        )
                         if alarm is not None:
                             self.urwid_loop.remove_alarm(alarm)
                         self.chatbox.message_box.typing = name
@@ -784,45 +868,51 @@ class App:
                     else:
                         pass
                         # print(json.dumps(event, indent=2))
-                elif event.get('type') == 'dnd_updated' and 'dnd_status' in event:
-                    self.store.is_snoozed = event['dnd_status']['snooze_enabled']
+                elif event.get("type") == "dnd_updated" and "dnd_status" in event:
+                    self.store.is_snoozed = event["dnd_status"]["snooze_enabled"]
                     self.sidebar.profile.set_snooze(self.store.is_snoozed)
-                elif event.get('ok', False):
+                elif event.get("ok", False):
                     if not self.is_chatbox_rendered:
                         return
 
                     # Message was sent, Slack confirmed it.
-                    self.chatbox.body.body.extend(self.render_messages([{
-                        'text': event['text'],
-                        'ts': event['ts'],
-                        'user': self.store.state.auth['user_id']
-                    }]))
+                    self.chatbox.body.body.extend(
+                        self.render_messages(
+                            [
+                                {
+                                    "text": event["text"],
+                                    "ts": event["ts"],
+                                    "user": self.store.state.auth["user_id"],
+                                }
+                            ]
+                        )
+                    )
                     self.chatbox.body.scroll_to_bottom()
                     self.handle_mark_read(-1)
                 else:
                     pass
                     # print(json.dumps(event, indent=2))
-            yield from asyncio.sleep(0.5)
+            await asyncio.sleep(0.5)
 
     def set_insert_mode(self):
         self.columns.focus_position = 1
-        self.chatbox.focus_position = 'footer'
+        self.chatbox.focus_position = "footer"
         self.message_box.focus_position = 1
 
     def set_edit_topic_mode(self):
         self.columns.focus_position = 1
-        self.chatbox.focus_position = 'header'
+        self.chatbox.focus_position = "header"
         self.chatbox.header.go_to_end_of_topic()
 
     def go_to_chatbox(self):
         self.columns.focus_position = 1
-        self.chatbox.focus_position = 'body'
+        self.chatbox.focus_position = "body"
 
     def leave_edit_mode(self):
         if self.store.state.editing_widget:
             self.store.state.editing_widget.unset_edit_mode()
             self.store.state.editing_widget = None
-        self.chatbox.message_box.text = ''
+        self.chatbox.message_box.text = ""
 
     def go_to_sidebar(self):
         if len(self.columns.contents) > 2:
@@ -833,22 +923,26 @@ class App:
             self.leave_edit_mode()
 
         if self.quick_switcher:
-            urwid.disconnect_signal(self.quick_switcher, 'go_to_channel', self.go_to_channel)
+            urwid.disconnect_signal(
+                self.quick_switcher, "go_to_channel", self.go_to_channel
+            )
             self.urwid_loop.widget = self._body
             self.quick_switcher = None
 
     def submit_message(self, message):
         if self.store.state.editing_widget:
-            channel = self.store.state.channel['id']
+            channel = self.store.state.channel["id"]
             ts = self.store.state.editing_widget.ts
             edit_result = self.store.edit_message(channel, ts, message)
-            if edit_result['ok']:
-                self.store.state.editing_widget.original_text = edit_result['text']
-                self.store.state.editing_widget.set_text(MarkdownText(edit_result['text']))
+            if edit_result["ok"]:
+                self.store.state.editing_widget.original_text = edit_result["text"]
+                self.store.state.editing_widget.set_text(
+                    MarkdownText(edit_result["text"])
+                )
             self.leave_edit_mode()
         else:
-            channel = self.store.state.channel['id']
-            if message.strip() != '':
+            channel = self.store.state.channel["id"]
+            if message.strip() != "":
                 self.store.post_message(channel, message)
                 self.leave_edit_mode()
 
@@ -869,7 +963,7 @@ class App:
         self.set_sidebar_width(0)
 
     def show_sidebar(self):
-        self.set_sidebar_width(self.config['sidebar']['width'])
+        self.set_sidebar_width(self.config["sidebar"]["width"])
 
     def toggle_sidebar(self):
         if self.sidebar_width > 0:
@@ -883,21 +977,31 @@ class App:
         :param key:
         :return:
         """
-        keymap = self.store.config['keymap']
+        keymap = self.store.config["keymap"]
 
-        if key == keymap['go_to_chatbox'] or key == keymap['cursor_right'] and self.message_box:
+        if (
+            key == keymap["go_to_chatbox"]
+            or key == keymap["cursor_right"]
+            and self.message_box
+        ):
             return self.go_to_chatbox()
-        elif key == keymap['go_to_sidebar']:
+        elif key == keymap["go_to_sidebar"]:
             return self.go_to_sidebar()
-        elif key == keymap['quit_application']:
+        elif key == keymap["quit_application"]:
             return self.quit_application()
-        elif key == keymap['set_edit_topic_mode'] and self.message_box and not self.store.state.channel['id'][0] == 'D':
+        elif (
+            key == keymap["set_edit_topic_mode"]
+            and self.message_box
+            and not self.store.state.channel["id"][0] == "D"
+        ):
             return self.set_edit_topic_mode()
-        elif key == keymap['set_insert_mode'] and self.message_box:
+        elif key == keymap["set_insert_mode"] and self.message_box:
             return self.set_insert_mode()
-        elif key == keymap['open_quick_switcher']:
+        elif key == keymap["open_quick_switcher"]:
             return self.open_quick_switcher()
-        elif key in ('1', '2', '3', '4', '5', '6', '7', '8', '9') and len(self.workspaces) >= int(key):
+        elif key in ("1", "2", "3", "4", "5", "6", "7", "8", "9") and len(
+            self.workspaces
+        ) >= int(key):
             # Loading or only 1 workspace
             if self._loading or self.workspaces_line is None:
                 return
@@ -911,62 +1015,75 @@ class App:
             # Stop rtm to switch workspace
             self.real_time_task.cancel()
             return self.switch_to_workspace(selected_workspace)
-        elif key == keymap['set_snooze']:
+        elif key == keymap["set_snooze"]:
             return self.open_set_snooze()
-        elif key == keymap['toggle_sidebar']:
+        elif key == keymap["toggle_sidebar"]:
             return self.toggle_sidebar()
 
     def open_quick_switcher(self):
         if not self.quick_switcher:
             self.quick_switcher = QuickSwitcher(self.urwid_loop.widget, self.urwid_loop)
-            urwid.connect_signal(self.quick_switcher, 'go_to_channel', self.go_to_channel)
+            urwid.connect_signal(
+                self.quick_switcher, "go_to_channel", self.go_to_channel
+            )
             self.urwid_loop.widget = self.quick_switcher
 
     def open_set_snooze(self):
         if not self.set_snooze_widget:
-            self.set_snooze_widget = SetSnoozeWidget(self.urwid_loop.widget, self.urwid_loop)
-            urwid.connect_signal(self.set_snooze_widget, 'set_snooze_time', self.handle_set_snooze_time)
-            urwid.connect_signal(self.set_snooze_widget, 'close_set_snooze', self.handle_close_set_snooze)
+            self.set_snooze_widget = SetSnoozeWidget(
+                self.urwid_loop.widget, self.urwid_loop
+            )
+            urwid.connect_signal(
+                self.set_snooze_widget, "set_snooze_time", self.handle_set_snooze_time
+            )
+            urwid.connect_signal(
+                self.set_snooze_widget, "close_set_snooze", self.handle_close_set_snooze
+            )
             self.urwid_loop.widget = self.set_snooze_widget
 
     def configure_screen(self, screen):
-        screen.set_terminal_properties(colors=self.store.config['colors'])
+        screen.set_terminal_properties(colors=self.store.config["colors"])
         screen.set_mouse_tracking()
         if self.workspaces_line is not None:
-            urwid.connect_signal(self.workspaces_line, 'switch_workspace', self.switch_to_workspace)
+            urwid.connect_signal(
+                self.workspaces_line, "switch_workspace", self.switch_to_workspace
+            )
 
     def quit_application(self):
         self.urwid_loop.stop()
-        if hasattr(self, 'real_time_task'):
+        if hasattr(self, "real_time_task"):
             self.real_time_task.cancel()
         sys.exit()
 
 
 def ask_for_token(json_config):
-    if os.path.isfile(os.path.expanduser('~/.sclack')):
-        with open(os.path.expanduser('~/.sclack'), 'r') as user_file:
+    if os.path.isfile(os.path.expanduser("~/.sclack")):
+        with open(os.path.expanduser("~/.sclack"), "r") as user_file:
             # Compatible with legacy configuration file
             new_config = json.load(user_file)
-            if not 'workspaces' in new_config:
-                new_config['workspaces'] = {'default': new_config['token']}
+            if "workspaces" not in new_config:
+                new_config["workspaces"] = {"default": new_config["token"]}
             json_config.update(new_config)
     else:
-        print('There is no ~/.sclack file. Let\'s create one!')
-        token = input('What is your Slack workspace token? ')
-        with open(os.path.expanduser('~/.sclack'), 'w') as config_file:
-            token_config = {'workspaces': {'default': token}}
+        print("There is no ~/.sclack file. Let's create one!")
+        token = input("What is your Slack workspace token? ")
+        with open(os.path.expanduser("~/.sclack"), "w") as config_file:
+            token_config = {"workspaces": {"default": token}}
             config_file.write(json.dumps(token_config, indent=False))
             json_config.update(token_config)
+
 
 def run():
     json_config = {}
     config_file = os.path.join(
-        os.path.dirname(os.path.realpath(__file__)), 'config.json')
-    with open(config_file, 'r') as config_file:
+        os.path.dirname(os.path.realpath(__file__)), "config.json"
+    )
+    with open(config_file, "r") as config_file:
         json_config.update(json.load(config_file))
     ask_for_token(json_config)
     app = App(json_config)
     app.start()
 
-if __name__ == '__main__':
+
+if __name__ == "__main__":
     run()
