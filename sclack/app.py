@@ -9,6 +9,8 @@ import tempfile
 import time
 import traceback
 from datetime import datetime
+from logzero import logger
+import logzero
 
 import requests
 import urwid
@@ -1074,6 +1076,10 @@ def ask_for_token(json_config):
 
 
 def run():
+    logzero.setup_default_logger(disableStderrLogger=True)
+    logzero.logfile("/tmp/logfile.log")
+    logzero.loglevel(logzero.INFO)
+    logger.info("Starting ...")
     json_config = {}
     config_file = os.path.join(
         os.path.dirname(os.path.realpath(__file__)), "config.json"
