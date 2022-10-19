@@ -1,35 +1,37 @@
 import subprocess
+
 import urwid
 
 color_list = [
-    'black',
-    'dark red',
-    'dark green',
-    'brown',
-    'dark blue',
-    'dark magenta',
-    'dark cyan',
-    'light gray',
-    'dark gray',
-    'light red',
-    'light green',
-    'yellow',
-    'light blue',
-    'light magenta',
-    'light cyan',
-    'white'
+    "black",
+    "dark red",
+    "dark green",
+    "brown",
+    "dark blue",
+    "dark magenta",
+    "dark cyan",
+    "light gray",
+    "dark gray",
+    "light red",
+    "light green",
+    "yellow",
+    "light blue",
+    "light magenta",
+    "light cyan",
+    "white",
 ]
+
 
 def ansi_to_urwid(ansi_text):
     result = []
-    ansi_text = ansi_text.decode('utf-8')
-    for instruction in ansi_text.split('\x1B['):
+    ansi_text = ansi_text.decode("utf-8")
+    for instruction in ansi_text.split("\x1B["):
         try:
-            attr, text = instruction.split('m', 1)
-        except:
-            attr = '0'
-            text = instruction.split('m', 1)
-        attr_list = [int(code) for code in attr.split(';')]
+            attr, text = instruction.split("m", 1)
+        except Exception:
+            attr = "0"
+            text = instruction.split("m", 1)
+        attr_list = [int(code) for code in attr.split(";")]
         attr_list.sort()
         foreground = -1
         background = -1
@@ -49,17 +51,19 @@ def ansi_to_urwid(ansi_text):
         result.append((urwid.AttrSpec(foreground, background), text))
     return result
 
+
 def img_to_ansi(path, width, height):
-    command = ['img2txt', path, '-f', 'utf8']
+    command = ["img2txt", path, "-f", "utf8"]
     if width:
-        command.extend(['-W', str(width)])
+        command.extend(["-W", str(width)])
     if height:
-        command.extend(['-H', str(height)])
+        command.extend(["-H", str(height)])
     try:
         ansi_text = subprocess.check_output(command)
-    except:
+    except Exception:
         ansi_text = None
     return ansi_text
+
 
 class Image(urwid.Text):
     def __init__(self, path, width=None, height=None):
@@ -67,6 +71,5 @@ class Image(urwid.Text):
         if ansi_text:
             self.markup = ansi_to_urwid(ansi_text)
         else:
-            self.markup = ['']
+            self.markup = [""]
         super(Image, self).__init__(self.markup)
-

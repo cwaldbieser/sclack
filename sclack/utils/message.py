@@ -12,8 +12,8 @@ def format_date_time(ts):
     today = datetime.today().date()
 
     if message_date == today:
-        date_text = message_datetime.strftime('Today at %I:%M%p')
+        date_text = message_datetime.strftime("Today at %I:%M%p")
     else:
-        date_text = message_datetime.strftime('%b %d, %Y at %I:%M%p')
+        date_text = message_datetime.strftime("%b %d, %Y at %I:%M%p")
 
     return date_text

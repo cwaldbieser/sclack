@@ -9,11 +9,11 @@ import tempfile
 import time
 import traceback
 from datetime import datetime
-from logzero import logger
-import logzero
 
+import logzero
 import requests
 import urwid
+from logzero import logger
 
 from sclack.component.message import Message
 from sclack.components import (Attachment, Channel, ChannelHeader, ChatBox, Dm,
