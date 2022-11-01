@@ -787,8 +787,8 @@ class App:
                 logger.info("Creating picture widget ...")
                 image_height = len(image_bytes.split("\n"))
                 picture = urwid.BoxAdapter(ANSIWidget(image_bytes), image_height)
-                # picture = urwid.Text("Image goes here.")
-                picture = urwid.Pile([urwid.Text(file.name), picture])
+                picture = urwid.Text("Image goes here.")
+                # picture = urwid.Pile([urwid.Text(file.name), picture])
                 message_widget.file = picture
 
     async def load_profile_avatar(self, url, profile):
