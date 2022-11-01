@@ -53,47 +53,23 @@ def ansi_to_urwid(ansi_text):
     return result
 
 
-# def img_to_ansi(path, width, height):
-#     command = ["img2txt", path, "-f", "utf8"]
-#     if width:
-#         command.extend(["-W", str(width)])
-#     if height:
-#         command.extend(["-H", str(height)])
-#     try:
-#         ansi_text = subprocess.check_output(command)
-#     except Exception:
-#         ansi_text = None
-#     return ansi_text
-
-
-class Image(urwid.Text):
-    def __init__(self, path, width=None, height=None):
-        ansi_text = img_to_ansi(path, width, height)
-        if ansi_text:
-            self.markup = ansi_to_urwid(ansi_text)
-        else:
-            self.markup = [""]
-        super(Image, self).__init__(self.markup)
-
-
 class ANSICanvas(urwid.canvas.Canvas):
-    def __init__(self, size, text_lines):
+    def __init__(self, size, text_lines, width):
         super().__init__()
 
-        self.maxcols, self.maxrows = size
-
         self.text_lines = text_lines
+        self._width = width
 
-    def cols(self) -> int:
-        return self.maxcols
+    def cols(self):
+        return self._width
 
-    def rows(self) -> int:
-        return self.maxrows
+    def rows(self):
+        return len(self.text_lines)
 
     def content(
         self,
-        trim_left: int = 0,
-        trim_top: int = 0,
+        trim_left=0,
+        trim_top=0,
         cols=None,
         rows=None,
         attr_map=None,
@@ -114,20 +90,26 @@ class ANSICanvas(urwid.canvas.Canvas):
 
 
 class ANSIWidget(urwid.Widget):
-    _sizing = frozenset([urwid.widget.BOX])
+    # _sizing = frozenset([urwid.widget.BOX])
+    _sizing = frozenset([urwid.widget.FIXED])
 
-    def __init__(self, text=""):
-        logger.info("ANSIWidget: text type: {}".format(type(text)))
+    def __init__(self, text, width):
         self.lines = text.split("\n")
+        self._width = width
 
     def set_content(self, lines):
         self.lines = lines
         self._invalidate()
 
-    def render(self, size, focus: bool = False):
-        canvas = ANSICanvas(size, self.lines)
+    def render(self, size, focus=False):
+        canvas = ANSICanvas(size, self.lines, self._width)
 
         return canvas
+
+    def pack(self, size=None, focus=False):
+        rows = len(self.lines)
+        cols = self._width
+        return (cols, rows)
 
 
 def img_to_ansi(path, width=None, height=None):

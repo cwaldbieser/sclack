@@ -786,8 +786,11 @@ class App:
             if image_bytes is not None:
                 logger.info("Creating picture widget ...")
                 image_height = len(image_bytes.split("\n"))
-                picture = urwid.BoxAdapter(ANSIWidget(image_bytes), image_height)
-                picture = urwid.Text("Image goes here.")
+                image_width = int(width / 10)
+                image = ANSIWidget(image_bytes, image_width)
+                padding = urwid.Padding(image, align=urwid.CENTER, width="clip")
+                filler = urwid.Filler(padding, min_height=5)
+                picture = urwid.BoxAdapter(filler, image_height)
                 # picture = urwid.Pile([urwid.Text(file.name), picture])
                 message_widget.file = picture
 
@@ -805,11 +808,15 @@ class App:
             file = tempfile.NamedTemporaryFile(delete=False)
             file.write(response.content)
             file.close()
-            image_bytes = img_to_ansi(file.name, width=35)
+            image_width = 35
+            image_bytes = img_to_ansi(file.name, width=image_width)
             if image_bytes is not None:
                 logger.info("Creating profile picture widget ...")
                 image_height = len(image_bytes.split("\n"))
-                avatar = urwid.BoxAdapter(ANSIWidget(image_bytes), image_height)
+                image = ANSIWidget(image_bytes, image_width)
+                padding = urwid.Padding(image, align=urwid.CENTER, width="clip")
+                filler = urwid.Filler(padding, min_height=5)
+                avatar = urwid.BoxAdapter(filler, image_height)
                 self.store.cache.avatar[url] = avatar
                 profile.avatar = avatar
 
