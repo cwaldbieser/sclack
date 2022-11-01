@@ -1,6 +1,7 @@
 import subprocess
 
 import urwid
+from logzero import logger
 
 color_list = [
     "black",
@@ -52,17 +53,17 @@ def ansi_to_urwid(ansi_text):
     return result
 
 
-def img_to_ansi(path, width, height):
-    command = ["img2txt", path, "-f", "utf8"]
-    if width:
-        command.extend(["-W", str(width)])
-    if height:
-        command.extend(["-H", str(height)])
-    try:
-        ansi_text = subprocess.check_output(command)
-    except Exception:
-        ansi_text = None
-    return ansi_text
+# def img_to_ansi(path, width, height):
+#     command = ["img2txt", path, "-f", "utf8"]
+#     if width:
+#         command.extend(["-W", str(width)])
+#     if height:
+#         command.extend(["-H", str(height)])
+#     try:
+#         ansi_text = subprocess.check_output(command)
+#     except Exception:
+#         ansi_text = None
+#     return ansi_text
 
 
 class Image(urwid.Text):
@@ -73,3 +74,85 @@ class Image(urwid.Text):
         else:
             self.markup = [""]
         super(Image, self).__init__(self.markup)
+
+
+class ANSICanvas(urwid.canvas.Canvas):
+    def __init__(self, size, text_lines):
+        super().__init__()
+
+        self.maxcols, self.maxrows = size
+
+        self.text_lines = text_lines
+
+    def cols(self) -> int:
+        return self.maxcols
+
+    def rows(self) -> int:
+        return self.maxrows
+
+    def content(
+        self,
+        trim_left: int = 0,
+        trim_top: int = 0,
+        cols=None,
+        rows=None,
+        attr_map=None,
+    ):
+        assert cols is not None
+        assert rows is not None
+
+        for i in range(rows):
+            if i < len(self.text_lines):
+                text = self.text_lines[i].encode("utf-8")
+            else:
+                text = b""
+
+            padding = bytes().rjust(max(0, cols - len(text)))
+            line = [(None, "U", text + padding)]
+
+            yield line
+
+
+class ANSIWidget(urwid.Widget):
+    _sizing = frozenset([urwid.widget.BOX])
+
+    def __init__(self, text=""):
+        logger.info("ANSIWidget: text type: {}".format(type(text)))
+        self.lines = text.split("\n")
+
+    def set_content(self, lines):
+        self.lines = lines
+        self._invalidate()
+
+    def render(self, size, focus: bool = False):
+        canvas = ANSICanvas(size, self.lines)
+
+        return canvas
+
+
+def img_to_ansi(path, width=None, height=None):
+    command = ["chafa", "-f", "symbols"]
+    explicit_width = width is not None
+    explicit_height = height is not None
+    if explicit_width:
+        width = int(width)
+    if explicit_height:
+        height = int(height)
+    if explicit_width and not explicit_height:
+        command.extend(["--size", "{}x".format(width)])
+    elif not explicit_width and height:
+        command.extend(["--size", "x{}".format(height)])
+    elif explicit_width and explicit_height:
+        command.extend(["--size", "{}x{}".format(width, height)])
+    command.append(path)
+    logger.info("command: {}".format(command))
+    try:
+        ansi_text = subprocess.check_output(command, stderr=subprocess.STDOUT).decode(
+            "utf-8"
+        )
+        logger.info("ANSI text length: {}".format(len(ansi_text)))
+    except Exception as ex:
+        ansi_text = None
+        logger.exception(ex)
+        logger.error(ex.output)
+    return ansi_text

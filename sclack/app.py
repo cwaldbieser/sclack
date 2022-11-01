@@ -9,6 +9,7 @@ import tempfile
 import time
 import traceback
 from datetime import datetime
+from urllib.parse import urlparse
 
 import logzero
 import requests
@@ -21,7 +22,7 @@ from sclack.components import (Attachment, Channel, ChannelHeader, ChatBox, Dm,
                                NewMessagesDivider, Profile, ProfileSideBar,
                                Reaction, SideBar, TextDivider, User,
                                Workspaces)
-from sclack.image import Image
+from sclack.image import ANSIWidget, img_to_ansi
 from sclack.loading import LoadingChatBox, LoadingSideBar
 from sclack.quick_switcher import QuickSwitcher
 from sclack.store import Store
@@ -60,6 +61,7 @@ class App:
             )
             self.chatbox = LoadingChatBox(message)
         except Exception as exc:
+            logger.exception(exc)
             self.chatbox = LoadingChatBox("Unable to show exception: " + str(exc))
         return
 
@@ -399,6 +401,7 @@ class App:
                 user["profile"].get("skype", None),
             )
             if self.config["features"]["pictures"]:
+                logger.info(user["profile"])
                 loop.create_task(
                     self.load_profile_avatar(user["profile"].get("image_512"), profile)
                 )
@@ -765,28 +768,50 @@ class App:
             headers = {}
             if auth:
                 headers = {"Authorization": "Bearer {}".format(self.store.slack_token)}
-            bytes = await loop.run_in_executor(
+            response = await loop.run_in_executor(
                 executor, functools.partial(requests.get, url, headers=headers)
             )
-            file = tempfile.NamedTemporaryFile(delete=False)
-            file.write(bytes.content)
+            status_code = response.status_code
+            if status_code < 200 or status_code > 299:
+                return
+            p = urlparse(url)
+            parts = os.path.splitext(p.path)
+            extension = parts[1]
+            file = tempfile.NamedTemporaryFile(delete=False, suffix=extension)
+            file.write(response.content)
             file.close()
-            picture = Image(file.name, width=(width / 10))
-            message_widget.file = picture
+            logger.info("Image URL is: {}".format(url))
+            logger.info("Temp picture file is: `{}`".format(file.name))
+            image_bytes = img_to_ansi(file.name, width=(width / 10))
+            if image_bytes is not None:
+                logger.info("Creating picture widget ...")
+                image_height = len(image_bytes.split("\n"))
+                picture = urwid.BoxAdapter(ANSIWidget(image_bytes), image_height)
+                # picture = urwid.Text("Image goes here.")
+                picture = urwid.Pile([urwid.Text(file.name), picture])
+                message_widget.file = picture
 
     async def load_profile_avatar(self, url, profile):
+        logger.info("Attempting to get profile URL: `{}`".format(url))
         bytes_in_cache = self.store.cache.avatar.get(url)
         if bytes_in_cache:
             profile.avatar = bytes_in_cache
             return
         with concurrent.futures.ThreadPoolExecutor(max_workers=20) as executor:
-            bytes = await loop.run_in_executor(executor, requests.get, url)
+            response = await loop.run_in_executor(executor, requests.get, url)
+            status_code = response.status_code
+            if status_code < 200 or status_code > 299:
+                return
             file = tempfile.NamedTemporaryFile(delete=False)
-            file.write(bytes.content)
+            file.write(response.content)
             file.close()
-            avatar = Image(file.name, width=35)
-            self.store.cache.avatar[url] = avatar
-            profile.avatar = avatar
+            image_bytes = img_to_ansi(file.name, width=35)
+            if image_bytes is not None:
+                logger.info("Creating profile picture widget ...")
+                image_height = len(image_bytes.split("\n"))
+                avatar = urwid.BoxAdapter(ANSIWidget(image_bytes), image_height)
+                self.store.cache.avatar[url] = avatar
+                profile.avatar = avatar
 
     async def start_real_time(self):
         self.store.slack.rtm_connect(auto_reconnect=True)
