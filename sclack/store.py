@@ -1,4 +1,3 @@
-from logzero import logger
 from slackclient import SlackClient
 
 
@@ -116,7 +115,6 @@ class Store:
         return channel_id[0] == "G"
 
     def get_channel_info(self, channel_id):
-        logger.info("channel_id: {}".format(channel_id))
         if channel_id[0] in ("C", "G"):
             return self.slack.api_call("conversations.info", channel=channel_id)[
                 "channel"

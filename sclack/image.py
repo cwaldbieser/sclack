@@ -127,12 +127,10 @@ def img_to_ansi(path, width=None, height=None):
     elif explicit_width and explicit_height:
         command.extend(["--size", "{}x{}".format(width, height)])
     command.append(path)
-    logger.info("command: {}".format(command))
     try:
         ansi_text = subprocess.check_output(command, stderr=subprocess.STDOUT).decode(
             "utf-8"
         )
-        logger.info("ANSI text length: {}".format(len(ansi_text)))
     except Exception as ex:
         ansi_text = None
         logger.exception(ex)

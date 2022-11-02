@@ -401,7 +401,6 @@ class App:
                 user["profile"].get("skype", None),
             )
             if self.config["features"]["pictures"]:
-                logger.info(user["profile"])
                 loop.create_task(
                     self.load_profile_avatar(user["profile"].get("image_512"), profile)
                 )
@@ -780,11 +779,8 @@ class App:
             file = tempfile.NamedTemporaryFile(delete=False, suffix=extension)
             file.write(response.content)
             file.close()
-            logger.info("Image URL is: {}".format(url))
-            logger.info("Temp picture file is: `{}`".format(file.name))
             image_bytes = img_to_ansi(file.name, width=(width / 10))
             if image_bytes is not None:
-                logger.info("Creating picture widget ...")
                 image_height = len(image_bytes.split("\n"))
                 image_width = int(width / 10)
                 image = ANSIWidget(image_bytes, image_width)
@@ -795,7 +791,6 @@ class App:
                 message_widget.file = picture
 
     async def load_profile_avatar(self, url, profile):
-        logger.info("Attempting to get profile URL: `{}`".format(url))
         bytes_in_cache = self.store.cache.avatar.get(url)
         if bytes_in_cache:
             profile.avatar = bytes_in_cache
@@ -811,7 +806,6 @@ class App:
             image_width = 35
             image_bytes = img_to_ansi(file.name, width=image_width)
             if image_bytes is not None:
-                logger.info("Creating profile picture widget ...")
                 image_height = len(image_bytes.split("\n"))
                 image = ANSIWidget(image_bytes, image_width)
                 padding = urwid.Padding(image, align=urwid.CENTER, width="clip")
@@ -1084,6 +1078,7 @@ class App:
             )
 
     def quit_application(self):
+        logger.info("Stopping Sclack ...")
         self.urwid_loop.stop()
         if hasattr(self, "real_time_task"):
             self.real_time_task.cancel()
@@ -1119,8 +1114,16 @@ def run():
     logfile = json_config.get("logfile")
     if logfile is not None:
         logzero.logfile(logfile)
+        loglevel = json_config.get("loglevel", "INFO")
+        if loglevel not in ("DEBUG", "INFO", "WARN", "ERROR", "CRITICAL"):
+            logger.warn(
+                (
+                    "Config loglevel set to invalid option `{}`." " Switching to INFO."
+                ).format(loglevel)
+            )
+            loglevel = "INFO"
         logzero.loglevel(logzero.INFO)
-        logger.info("Starting ...")
+    logger.info("Starting Sclack TUI client.")
     app = App(json_config)
     app.start()
 
