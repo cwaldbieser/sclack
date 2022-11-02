@@ -6,7 +6,7 @@ import urwid_readline
 from sclack.utils.channel import is_channel, is_dm, is_group
 from sclack.utils.message import format_date_time
 
-from .emoji import emoji_codemap
+from .emoji import emoji_codemap, emoji_modifier_codemap
 from .markdown import MarkdownText
 from .store import Store
 
@@ -693,8 +693,15 @@ class ProfileSideBar(urwid.AttrWrap):
 
 class Reaction(urwid.Text):
     def __init__(self, name, count=0):
+        parts = name.split("::", 1)
+        name = parts[0]
+        if len(parts) > 1:
+            modifier = parts[1]
+        else:
+            modifier = ""
         name = emoji_codemap.get(name, name)
-        text = "[{} {}]".format(name, count)
+        modifier = emoji_modifier_codemap.get(modifier, modifier)
+        text = "[{}{} {}]".format(name, modifier, count)
         super(Reaction, self).__init__(("reaction", text))
 
 
