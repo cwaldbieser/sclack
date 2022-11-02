@@ -1109,9 +1109,6 @@ def ask_for_token(json_config):
 
 def run():
     logzero.setup_default_logger(disableStderrLogger=True)
-    logzero.logfile("/tmp/logfile.log")
-    logzero.loglevel(logzero.INFO)
-    logger.info("Starting ...")
     json_config = {}
     config_file = os.path.join(
         os.path.dirname(os.path.realpath(__file__)), "config.json"
@@ -1119,6 +1116,11 @@ def run():
     with open(config_file, "r") as config_file:
         json_config.update(json.load(config_file))
     ask_for_token(json_config)
+    logfile = json_config.get("logfile")
+    if logfile is not None:
+        logzero.logfile(logfile)
+        logzero.loglevel(logzero.INFO)
+        logger.info("Starting ...")
     app = App(json_config)
     app.start()
 
